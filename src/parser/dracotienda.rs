@@ -80,7 +80,7 @@ fn process_page(body: &String) -> Option<String> {
     }
 }
 
-pub async fn fetch_dracotienda(client: &Client, url: &str) -> Result<(), Report> {
+pub async fn process_dracotienda(client: &Client, url: &str) -> Result<(), Report> {
     
     let mut url_to_process = url.to_owned();
     loop {

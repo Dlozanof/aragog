@@ -2,14 +2,14 @@ use color_eyre::Report;
 use tracing::info;
 use tracing_subscriber::filter::EnvFilter;
 use reqwest::Client;
-use aragog::parser::fetch_dracotienda;
 
 #[tokio::main]
 async fn main() -> Result<(), Report> {
     setup()?;
 
     let client = Client::new();
-    fetch_dracotienda(&client, "https://dracotienda.com/1715-juegos-de-tablero").await?;
+    aragog::parser::
+    process_dracotienda(&client, "https://dracotienda.com/1715-juegos-de-tablero").await?;
 
     Ok(())
 }
