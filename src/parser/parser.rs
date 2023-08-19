@@ -49,17 +49,16 @@ fn process_page(body: &String) -> String {
         let current_price_selector = Selector::parse("span.price").unwrap();
         let current_price = entry.select(&current_price_selector).next().map(|price| price.text().collect::<String>());
         if current_price == None {
-            warn!("Bad current_price for {}", name.unwrap());
+            warn!("Bad current_price for {} [{:?}]", name.unwrap(), current_price);
             continue;
         }
         
-        // Get offer price
+        // Get offer price. If there is none, then is not a discount but a normal offer.
         let regular_price_selector = Selector::parse("span.regular-price").unwrap();
-        let regular_price = entry.select(&regular_price_selector).next().map(|price| price.text().collect::<String>());
-        if regular_price == None {
-            warn!("Bad regular_price for {}", name.unwrap());
-            continue;
-        }
+        let regular_price = match entry.select(&regular_price_selector).next().map(|price| price.text().collect::<String>()) {
+            Some(price) => Some(price),
+            None => current_price.to_owned(),
+        };
 
         info!("{} | {} | {} -> {}", 
             parse_price(&regular_price.unwrap()),
@@ -97,5 +96,10 @@ pub async fn fetch_dracotienda(client: &Client, url: &str) -> Result<(), Report>
 }
 
 fn parse_price(input: &String) -> f32 {
-    input[0..input.len() - 5].replace(",",".").parse::<f32>().unwrap()
+    //input[0..input.len() - 5].replace(",",".").parse::<f32>().unwrap()
+    let val = input.split(" ").next().unwrap();
+    let val_clean = val.replace(|c: char| !c.is_ascii(), "").replace(",",".");
+    let val_float = val_clean.parse::<f32>().unwrap();
+
+    val_float
 }
