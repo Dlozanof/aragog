@@ -1,10 +1,10 @@
 use crate::types::{PageEntry, Page, Offer};
 use color_eyre::Report;
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 use reqwest::Client;
 use scraper::{Html, Selector};
 
-fn process_page(body: &String) -> String {
+fn process_page(body: &String) -> Option<String> {
     let fragment = Html::parse_document(&body);
 
     let entries = Selector::parse("div.laberProduct-container").unwrap();
@@ -20,12 +20,16 @@ fn process_page(body: &String) -> String {
         // Get name
         let name_selector = Selector::parse("h2.productName").unwrap();
         let name_tokens: Vec<_> = entry.select(&name_selector).collect();
+        if name_tokens.is_empty() {
+            continue;
+        }
         let name: Option<String> = match name_tokens.first() {
             Some(value) => Some(value.text().collect::<Vec<_>>().get(0).unwrap().to_string()),
             None => None,
         };
     
         if name == None {
+            error!("Unable to get name for {:?}", name_tokens);
             continue;
         }
 
@@ -67,30 +71,30 @@ fn process_page(body: &String) -> String {
             link.unwrap());
     }
 
-    info!("{:?}", page_entry);
-    
     // Search "next" link and return it
     let next_url_selector = Selector::parse("a.next").unwrap();
-    let next_url = fragment.select(&next_url_selector).next().map(|url| url.value().attr("href")).unwrap().unwrap();
-    info!("{:?}", next_url);
-
-    next_url.to_owned()
+    let next_url = fragment.select(&next_url_selector).next().map(|url| url.value().attr("href")).unwrap();
+    match next_url {
+        Some(url) => Some(url.to_owned()),
+        None => None,
+    }
 }
 
 pub async fn fetch_dracotienda(client: &Client, url: &str) -> Result<(), Report> {
     
     let mut url_to_process = url.to_owned();
     loop {
+        info!("Processing URL [{}]", url);
         let res = client.get(url_to_process).send().await?.error_for_status()?;
         assert!(res.status().is_success());
 
         let body = res.text().await?;
         
-        url_to_process = process_page(&body);
+        match process_page(&body) {
+            Some(next_url) => url_to_process = next_url,
+            None => break,
+        };
     }
-
-    
-
 
     Ok(())
 }
