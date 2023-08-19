@@ -2,6 +2,14 @@
 // scrap
 
 #[derive(Debug)]
+pub struct Offer {
+    pub url: String,
+    pub name: String,
+    pub normal_price: i32,
+    pub offer_price: i32,
+}
+
+#[derive(Debug)]
 pub struct PageEntry {
     pub url: String,
     pub name: String
