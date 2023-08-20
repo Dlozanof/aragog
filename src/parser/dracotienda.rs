@@ -1,18 +1,13 @@
-use crate::types::{PageEntry, Page, Offer};
+use crate::types::Offer;
 use color_eyre::Report;
 use tracing::{info, warn, error};
 use reqwest::Client;
 use scraper::{Html, Selector};
 
-fn process_page(body: &String) -> Option<String> {
+async fn process_page(body: &String) -> Option<String> {
     let fragment = Html::parse_document(&body);
 
     let entries = Selector::parse("div.laberProduct-container").unwrap();
-
-    let page_entry = Page {
-        next_url:  String::from("TBD"),
-        entries: Vec::new(),
-    };
 
     // Process offers in current page
     for entry in fragment.select(&entries) {
@@ -64,11 +59,25 @@ fn process_page(body: &String) -> Option<String> {
             None => current_price.to_owned(),
         };
 
-        info!("{} | {} | {} -> {}", 
-            parse_price(&regular_price.unwrap()),
-            parse_price(&current_price.unwrap()),
-            name.unwrap(),
-            link.unwrap());
+        // Create the object offer
+        let current_offer = Offer {
+            name: name.unwrap(),
+            url: link.unwrap(),
+            offer_price: parse_price(&current_price.unwrap()),
+            normal_price: parse_price(&regular_price.unwrap()),
+        };
+        info!("{:?}", current_offer);
+
+        // Send it to backend
+        let response = reqwest::Client::new()
+            .post("http://localhost:9987/new_offer")
+            .header("Content-Type", "application/json")
+            .form(&current_offer)
+            .send()
+            .await;
+        if response.unwrap().status() != 200 {
+            warn!("Failed to register {:?}", current_offer);
+        }
     }
 
     // Search "next" link and return it
@@ -90,7 +99,7 @@ pub async fn process_dracotienda(client: &Client, url: &str) -> Result<(), Repor
 
         let body = res.text().await?;
         
-        match process_page(&body) {
+        match process_page(&body).await {
             Some(next_url) => url_to_process = next_url,
             None => break,
         };
