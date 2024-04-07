@@ -2,3 +2,4 @@
 
 backend:
   url: "http://localhost:9987"
+  ep: "new_offer"

@@ -6,15 +6,7 @@ pub struct Settings {
 #[derive(serde::Deserialize)]
 pub struct BackendSettings {
     pub url: String,
-}
-
-impl BackendSettings {
-    pub fn new_offer_string(&self) -> String {
-        format!(
-            "{}/new_offer",
-            self.url
-        )
-    }
+    pub ep: String,
 }
 
 pub fn get_configuration() -> Result<Settings, config::ConfigError> {

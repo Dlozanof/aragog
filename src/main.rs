@@ -1,21 +1,34 @@
 use color_eyre::Report;
 use tracing_subscriber::filter::EnvFilter;
-use reqwest::Client;
 use aragog::configuration::get_configuration;
-use aragog::parser::process_dracotienda;
+use aragog::parser::{Configuration, DracotiendaParser, ShopParser};
 
-#[tokio::main]
-async fn main() -> Result<(), Report> {
+fn main() -> Result<(), Report> {
     setup()?;
 
+    // Read configuration
     let configuration = get_configuration().expect("Failed to read configuration file");
-    println!("Url: {}", configuration.backend.url);
 
-    let client = Client::new();
-    process_dracotienda(&client, "https://dracotienda.com/1715-juegos-de-tablero").await?;
+    // Provide it to different parsers
+    let cfg = Configuration {
+        server_address: String::from(configuration.backend.url),
+        post_endpoint: String::from(configuration.backend.ep),
+    };
+
+    // Load up parsers
+    let mut parser_vector: Vec<Box<dyn ShopParser>> = Vec::new();
+    parser_vector.push(
+        Box::new(DracotiendaParser { cfg }),
+    );
+    //process_dracotienda(&client, "https://dracotienda.com/1715-juegos-de-tablero").await?;
+
+    for parser in parser_vector {
+        let _ = parser.process(&reqwest::blocking::Client::new(), "https://dracotienda.com/1715-juegos-de-tablero");
+    }
 
     Ok(())
 }
+
 
 fn setup() -> Result<(), Report> {
     if std::env::var("RUST_LIB_BACKTRACE").is_err() {
