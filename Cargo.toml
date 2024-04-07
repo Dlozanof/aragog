@@ -14,10 +14,23 @@ name = "aragog"
 
 [dependencies]
 color-eyre = "0.5.11"
-reqwest = { version = "0.11.4", default-features = false, features = ["rustls-tls", "json"] }
+config = { version = "0.11", default-features = false, features = ["yaml"] }
+reqwest = { version = "0.11.4", default-features = false, features = ["rustls-tls", "json", "blocking"]}
 scraper = "0.17.1"
 serde = { version = "1.0.183", features = ["derive"] }
 serde_json = "1.0.105"
 tokio = { version = "1.9.0", features = ["full"] }
+
+# Tracing
 tracing = "0.1.26"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+tracing-bunyan-formatter = "0.3"
+
+# Telemetry
+#actix-web = "4"
+#actix-web-opentelemetry = "0.13.0"
+opentelemetry = { version = "0.19.0", default-features = false, features = ["trace", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.12.0", features = ["reqwest-client", "reqwest-rustls", "http-proto"] }
+opentelemetry-semantic-conventions = "0.11.0"
+tracing-opentelemetry = "0.19.0"
+regex = "1.10.4"
