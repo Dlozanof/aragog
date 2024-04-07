@@ -1,0 +1,4 @@
+# configuration.yaml
+
+backend:
+  url: "http://localhost:9987"

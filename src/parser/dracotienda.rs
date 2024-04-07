@@ -89,6 +89,17 @@ async fn process_page(body: &String) -> Option<String> {
     }
 }
 
+
+fn parse_price(input: &String) -> f64 {
+    //input[0..input.len() - 5].replace(",",".").parse::<f32>().unwrap()
+    let val = input.split(" ").next().unwrap();
+    let val_clean = val.replace(|c: char| !c.is_ascii(), "").replace(",",".");
+    let val_float = val_clean.parse::<f64>().unwrap();
+
+    val_float
+}
+
+
 pub async fn process_dracotienda(client: &Client, url: &str) -> Result<(), Report> {
     
     let mut url_to_process = url.to_owned();
@@ -108,11 +119,3 @@ pub async fn process_dracotienda(client: &Client, url: &str) -> Result<(), Repor
     Ok(())
 }
 
-fn parse_price(input: &String) -> f32 {
-    //input[0..input.len() - 5].replace(",",".").parse::<f32>().unwrap()
-    let val = input.split(" ").next().unwrap();
-    let val_clean = val.replace(|c: char| !c.is_ascii(), "").replace(",",".");
-    let val_float = val_clean.parse::<f32>().unwrap();
-
-    val_float
-}

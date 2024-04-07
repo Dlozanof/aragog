@@ -5,8 +5,8 @@
 pub struct Offer {
     pub url: String,
     pub name: String,
-    pub normal_price: f32,
-    pub offer_price: f32,
+    pub normal_price: f64,
+    pub offer_price: f64,
 }
 
 #[derive(Debug)]

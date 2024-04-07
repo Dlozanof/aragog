@@ -1,14 +1,17 @@
 use color_eyre::Report;
-use tracing::info;
 use tracing_subscriber::filter::EnvFilter;
 use reqwest::Client;
+use aragog::configuration::get_configuration;
+use aragog::parser::process_dracotienda;
 
 #[tokio::main]
 async fn main() -> Result<(), Report> {
     setup()?;
 
+    let configuration = get_configuration().expect("Failed to read configuration file");
+    println!("Url: {}", configuration.backend.url);
+
     let client = Client::new();
-    aragog::parser::
     process_dracotienda(&client, "https://dracotienda.com/1715-juegos-de-tablero").await?;
 
     Ok(())
