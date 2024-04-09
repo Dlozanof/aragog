@@ -1,7 +1,9 @@
 // Given an URL, a page is formed with information about next URL and a list of page_entries to
 // scrap
 
-#[derive(Debug, serde::Serialize)] 
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Offer {
     pub url: String,
     pub name: String,

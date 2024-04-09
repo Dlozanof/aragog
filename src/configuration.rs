@@ -1,12 +1,19 @@
 #[derive(serde::Deserialize)]
 pub struct Settings {
     pub backend: BackendSettings,
+    pub telemetry: TelemetrySettings,
 }
 
 #[derive(serde::Deserialize)]
 pub struct BackendSettings {
     pub url: String,
     pub ep: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct TelemetrySettings {
+    pub endpoint: String,
+    pub service_name: String,
 }
 
 pub fn get_configuration() -> Result<Settings, config::ConfigError> {

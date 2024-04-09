@@ -3,3 +3,7 @@
 backend:
   url: "http://localhost:9987"
   ep: "new_offer"
+
+telemetry:
+  endpoint: "http://142.132.237.243:4317"
+  service_name: "aragog"

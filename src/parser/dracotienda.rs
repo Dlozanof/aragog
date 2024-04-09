@@ -1,11 +1,16 @@
 use crate::types::Offer;
 use color_eyre::Report;
+use config::Value;
+use tracing::info_span;
 use tracing::{info, warn, error};
-use reqwest::Client;
 use scraper::{Html, Selector};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use crate::parser::ShopParser;
 use crate::parser::Configuration;
+use tracing::instrument;
+use crate::telemetry::{PropagationContext, SpannedMessage};
 
+#[derive(Debug)]
 pub struct DracotiendaParser {
     pub cfg: Configuration,
 }
@@ -13,6 +18,7 @@ pub struct DracotiendaParser {
 
 impl DracotiendaParser {
 
+    #[instrument(level = "info", name = "dracotienda_process_page", skip(body))]
     fn process_page(&self, body: &String) -> Option<String> {
         let fragment = Html::parse_document(&body);
 
@@ -20,6 +26,10 @@ impl DracotiendaParser {
 
         // Process offers in current page
         for entry in fragment.select(&entries) {
+
+            // Create a span for every iteration of the loop
+            let span = info_span!("Processing entry");
+            let _guard = span.enter();
 
             // Get name
             let name_selector = Selector::parse("h2.productName").unwrap();
@@ -49,7 +59,7 @@ impl DracotiendaParser {
                 None => None,
             };
             if link == None {
-                warn!("Bad link for {}", name.unwrap());
+                error!("Bad link for {}", name.unwrap());
                 continue;
             }
 
@@ -57,7 +67,7 @@ impl DracotiendaParser {
             let current_price_selector = Selector::parse("span.price").unwrap();
             let current_price = entry.select(&current_price_selector).next().map(|price| price.text().collect::<String>());
             if current_price == None {
-                warn!("Bad current_price for {} [{:?}]", name.unwrap(), current_price);
+                error!("Bad current_price for {} [{:?}]", name.unwrap(), current_price);
                 continue;
             }
             
@@ -77,15 +87,27 @@ impl DracotiendaParser {
             };
             info!("{:?}", current_offer);
 
-            // Send it to backend
+            // Send it to backend, including the current span
+            //span.in_scope(|| {
+            let propagation_context = PropagationContext::inject(&span.context());
+            let spanned_message = SpannedMessage::new(propagation_context, current_offer.clone());
+            //});
+
             let post_url = format!("{}/{}", self.cfg.server_address, self.cfg.post_endpoint);
             let response = reqwest::blocking::Client::new()
                 .post(post_url)
                 .header("Content-Type", "application/json")
-                .form(&current_offer)
+                .json(&spanned_message)
                 .send();
-            if response.unwrap().status() != 200 {
-                warn!("Failed to register {:?}", current_offer);
+            match response {
+                Ok(val) => {
+                    if val.status() != 200 {
+                        error!("{} Failed to register {:?}", val.status(), current_offer);
+                    }
+                },
+                Err(e) => {
+                    println!("{}", e.to_string());
+                }
             }
         }
 
@@ -112,6 +134,7 @@ fn parse_price(input: &String) -> f64 {
 
 
 impl ShopParser for DracotiendaParser {
+
     fn process(&self, client: &reqwest::blocking::Client, url: &str) -> Result<(), Report> {
     
         let mut url_to_process = url.to_owned();
