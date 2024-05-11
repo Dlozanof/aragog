@@ -1,9 +1,8 @@
 use crate::types::Offer;
 use color_eyre::Report;
 use config::Value;
-use tracing::info_span;
 use tracing::{info, warn, error};
-use scraper::{Html, Selector};
+use scraper::{ElementRef, Html, Selector};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use crate::parser::ShopParser;
 use crate::parser::Configuration;
@@ -18,7 +17,87 @@ pub struct DracotiendaParser {
 
 impl DracotiendaParser {
 
-    #[instrument(level = "info", name = "dracotienda_process_page", skip(body))]
+    #[instrument(level = "info", name = "Processing entry", skip_all)]
+    fn process_entry(&self, entry: ElementRef) {
+
+        // Get name
+        let name_selector = Selector::parse("h2.productName").unwrap();
+        let name_tokens: Vec<_> = entry.select(&name_selector).collect();
+        if name_tokens.is_empty() {
+            return;
+        }
+        let name: Option<String> = match name_tokens.first() {
+            Some(value) => Some(value.text().collect::<Vec<_>>().get(0).unwrap().to_string()),
+            None => None,
+        };
+
+        if name == None {
+            error!("Unable to get name for {:?}", name_tokens);
+            return;
+        }
+
+        // Get url
+        let link_selector = Selector::parse("a").unwrap();
+        let link: Option<String> = match entry.select(&link_selector).collect::<Vec<_>>().first() {
+            Some(link_value) => {
+                match link_value.value().attr("href") {
+                    Some(url) => Some(String::from(url)),
+                    None => None,
+                }
+            }
+            None => None,
+        };
+        if link == None {
+            error!("Bad link for {}", name.unwrap());
+            return;
+        }
+
+        // Get current price
+        let current_price_selector = Selector::parse("span.price").unwrap();
+        let current_price = entry.select(&current_price_selector).next().map(|price| price.text().collect::<String>());
+        if current_price == None {
+            error!("Bad current_price for {} [{:?}]", name.unwrap(), current_price);
+            return;
+        }
+
+        // Get offer price. If there is none, then is not a discount but a normal offer.
+        let regular_price_selector = Selector::parse("span.regular-price").unwrap();
+        let regular_price = match entry.select(&regular_price_selector).next().map(|price| price.text().collect::<String>()) {
+            Some(price) => Some(price),
+            None => current_price.to_owned(),
+        };
+
+        // Create the object offer
+        let current_offer = Offer {
+            name: name.unwrap(),
+            url: link.unwrap(),
+            offer_price: parse_price(&current_price.unwrap()),
+            normal_price: parse_price(&regular_price.unwrap()),
+        };
+        info!("{:?}", current_offer);
+
+        let propagation_context = PropagationContext::inject(&tracing::Span::current().context());
+        let spanned_message = SpannedMessage::new(propagation_context, current_offer.clone());
+
+        let post_url = format!("{}/{}", self.cfg.server_address, self.cfg.post_endpoint);
+
+        let response = reqwest::blocking::Client::new()
+            .post(post_url)
+            .header("Content-Type", "application/json")
+            .json(&spanned_message)
+            .send();
+        match response {
+            Ok(val) => {
+                if val.status() != 200 {
+                    error!("{} Failed to register {:?}", val.status(), current_offer);
+                }
+            },
+            Err(e) => {
+                error!("{}", e.to_string());
+            }
+        }
+    }
+
     fn process_page(&self, body: &String) -> Option<String> {
         let fragment = Html::parse_document(&body);
 
@@ -26,89 +105,7 @@ impl DracotiendaParser {
 
         // Process offers in current page
         for entry in fragment.select(&entries) {
-
-            // Create a span for every iteration of the loop
-            let span = info_span!("Processing entry");
-            let _guard = span.enter();
-
-            // Get name
-            let name_selector = Selector::parse("h2.productName").unwrap();
-            let name_tokens: Vec<_> = entry.select(&name_selector).collect();
-            if name_tokens.is_empty() {
-                continue;
-            }
-            let name: Option<String> = match name_tokens.first() {
-                Some(value) => Some(value.text().collect::<Vec<_>>().get(0).unwrap().to_string()),
-                None => None,
-            };
-        
-            if name == None {
-                error!("Unable to get name for {:?}", name_tokens);
-                continue;
-            }
-
-            // Get url
-            let link_selector = Selector::parse("a").unwrap();
-            let link: Option<String> = match entry.select(&link_selector).collect::<Vec<_>>().first() {
-                Some(link_value) => {
-                    match link_value.value().attr("href") {
-                        Some(url) => Some(String::from(url)),
-                        None => None,
-                    }
-                }
-                None => None,
-            };
-            if link == None {
-                error!("Bad link for {}", name.unwrap());
-                continue;
-            }
-
-            // Get current price
-            let current_price_selector = Selector::parse("span.price").unwrap();
-            let current_price = entry.select(&current_price_selector).next().map(|price| price.text().collect::<String>());
-            if current_price == None {
-                error!("Bad current_price for {} [{:?}]", name.unwrap(), current_price);
-                continue;
-            }
-            
-            // Get offer price. If there is none, then is not a discount but a normal offer.
-            let regular_price_selector = Selector::parse("span.regular-price").unwrap();
-            let regular_price = match entry.select(&regular_price_selector).next().map(|price| price.text().collect::<String>()) {
-                Some(price) => Some(price),
-                None => current_price.to_owned(),
-            };
-
-            // Create the object offer
-            let current_offer = Offer {
-                name: name.unwrap(),
-                url: link.unwrap(),
-                offer_price: parse_price(&current_price.unwrap()),
-                normal_price: parse_price(&regular_price.unwrap()),
-            };
-            info!("{:?}", current_offer);
-
-            // Send it to backend, including the current span
-            //span.in_scope(|| {
-            let propagation_context = PropagationContext::inject(&span.context());
-            let spanned_message = SpannedMessage::new(propagation_context, current_offer.clone());
-            //});
-
-            let post_url = format!("{}/{}", self.cfg.server_address, self.cfg.post_endpoint);
-            let response = reqwest::blocking::Client::new()
-                .post(post_url)
-                .header("Content-Type", "application/json")
-                .json(&spanned_message)
-                .send();
-            match response {
-                Ok(val) => {
-                    if val.status() != 200 {
-                        error!("{} Failed to register {:?}", val.status(), current_offer);
-                    }
-                },
-                Err(e) => {
-                    println!("{}", e.to_string());
-                }
-            }
+            self.process_entry(entry);
         }
 
         // Search "next" link and return it
@@ -139,7 +136,6 @@ impl ShopParser for DracotiendaParser {
     
         let mut url_to_process = url.to_owned();
         loop {
-            info!("Processing URL [{}]", url);
             let res = client.get(url_to_process).send()?.error_for_status()?;
             assert!(res.status().is_success());
     

@@ -1,4 +1,5 @@
 use color_eyre::Report;
+use tracing::info;
 use tracing_subscriber::filter::EnvFilter;
 use aragog::configuration::get_configuration;
 use aragog::parser::{Configuration, DracotiendaParser, ShopParser};
@@ -24,7 +25,7 @@ async fn main() -> Result<(), Report> {
     //let handle = Handle::current();
 
     let _ = std::thread::spawn(move || {
-        println!("Thread {} started", 0);
+        info!("Thread {} started", 0);
 
         // Load up parsers
         let mut parser_vector: Vec<Box<dyn ShopParser>> = Vec::new();
@@ -33,7 +34,7 @@ async fn main() -> Result<(), Report> {
         );
 
         for parser in parser_vector {
-            println!("Processing...");
+            info!("Processing...");
             let _ = parser.process(&reqwest::blocking::Client::new(), "https://dracotienda.com/1715-juegos-de-tablero");
         }
     }).join();
