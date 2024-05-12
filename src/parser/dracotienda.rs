@@ -8,12 +8,24 @@ use crate::parser::ShopParser;
 use crate::parser::Configuration;
 use tracing::instrument;
 use crate::telemetry::{PropagationContext, SpannedMessage};
+use regex::Regex;
 
 #[derive(Debug)]
 pub struct DracotiendaParser {
     pub cfg: Configuration,
 }
 
+fn process_name(name: &str) -> Option<String> {
+
+    // Any "Preventa" game is automatically out
+    let re = Regex::new(r"Preventa").unwrap();
+    if re.captures(name).is_some() {
+        info!("Preventa game skipped");
+        return None;
+    }
+
+    Some(String::from(name))
+}
 
 impl DracotiendaParser {
 
@@ -24,6 +36,7 @@ impl DracotiendaParser {
         let name_selector = Selector::parse("h2.productName").unwrap();
         let name_tokens: Vec<_> = entry.select(&name_selector).collect();
         if name_tokens.is_empty() {
+            error!("Name is empty");
             return;
         }
         let name: Option<String> = match name_tokens.first() {
@@ -31,10 +44,21 @@ impl DracotiendaParser {
             None => None,
         };
 
-        if name == None {
+        if name.is_none() {
             error!("Unable to get name for {:?}", name_tokens);
             return;
         }
+
+        let name = name.unwrap();
+        info!("Processing {}", name);
+
+        // Process name, remove weird offers
+        let name = match process_name(name.as_str()) {
+            Some(name) => name,
+            None => {
+                return;
+            }
+        };
 
         // Get url
         let link_selector = Selector::parse("a").unwrap();
@@ -48,7 +72,7 @@ impl DracotiendaParser {
             None => None,
         };
         if link == None {
-            error!("Bad link for {}", name.unwrap());
+            error!("Bad link for {}", name);
             return;
         }
 
@@ -56,7 +80,7 @@ impl DracotiendaParser {
         let current_price_selector = Selector::parse("span.price").unwrap();
         let current_price = entry.select(&current_price_selector).next().map(|price| price.text().collect::<String>());
         if current_price == None {
-            error!("Bad current_price for {} [{:?}]", name.unwrap(), current_price);
+            error!("Bad current_price for {} [{:?}]", name, current_price);
             return;
         }
 
@@ -69,7 +93,7 @@ impl DracotiendaParser {
 
         // Create the object offer
         let current_offer = Offer {
-            name: name.unwrap(),
+            name,
             url: link.unwrap(),
             offer_price: parse_price(&current_price.unwrap()),
             normal_price: parse_price(&regular_price.unwrap()),
