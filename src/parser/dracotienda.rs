@@ -15,16 +15,41 @@ pub struct DracotiendaParser {
     pub cfg: Configuration,
 }
 
+// TODO: Implement a blacklist module in which you provide a list of `r""`
+// and any of them that matches makes a return None happen
 fn process_name(name: &str) -> Option<String> {
 
     // Any "Preventa" game is automatically out
-    let re = Regex::new(r"Preventa").unwrap();
+    let re = Regex::new(r"[pP]reventa").unwrap();
     if re.captures(name).is_some() {
         info!("Preventa game skipped");
         return None;
     }
 
-    Some(String::from(name))
+    // Any "Promo" game is automatically out
+    let re = Regex::new(r"[pP]romo").unwrap();
+    if re.captures(name).is_some() {
+        info!("Promo game skipped");
+        return None;
+    }
+    
+    // Any "Expansion" combo shit: you guessed it, jail
+    let re = Regex::new(r"[eE]xpansi").unwrap();
+    if re.captures(name).is_some() {
+        info!("Expansion combo skipped");
+        return None;
+    }
+
+    // Language in parentheses is just removed
+    let result = str::replace(name, "(castellano)", "");
+    let result = str::replace(&result, "(inglés)", "");
+
+    // At this point just remove any parentheses left. Thanks CHATGPT
+    let re = Regex::new(r"\([^)]*\)").unwrap();
+    let result = re.replace_all(&result, "").to_string();
+
+
+    Some(result)
 }
 
 impl DracotiendaParser {
@@ -36,7 +61,8 @@ impl DracotiendaParser {
         let name_selector = Selector::parse("h2.productName").unwrap();
         let name_tokens: Vec<_> = entry.select(&name_selector).collect();
         if name_tokens.is_empty() {
-            error!("Name is empty");
+            //error!("Name is empty"); // Not sure why but there are several empty offers every
+            //page, probably a shitty workaround
             return;
         }
         let name: Option<String> = match name_tokens.first() {
@@ -59,6 +85,7 @@ impl DracotiendaParser {
                 return;
             }
         };
+        info!("Game processed to {}", name);
 
         // Get url
         let link_selector = Selector::parse("a").unwrap();
