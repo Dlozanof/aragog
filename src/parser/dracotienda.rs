@@ -118,12 +118,24 @@ impl DracotiendaParser {
             None => current_price.to_owned(),
         };
 
+        // Get availability
+        let availability_selector = Selector::parse("span.product-availability").unwrap();
+        let mut availability = match entry.select(&availability_selector).next().map(|t| t.text().collect::<String>()) {
+            Some(t) => t,
+            None => String::new(),
+        };
+        availability.retain(|c| c.is_alphanumeric() || c.is_whitespace());
+        let availability = availability.trim();
+
+        info!("Availability: {}", availability);
+
         // Create the object offer
         let current_offer = Offer {
             name,
             url: link.unwrap(),
             offer_price: parse_price(&current_price.unwrap()),
             normal_price: parse_price(&regular_price.unwrap()),
+            availability: availability.to_owned()
         };
         info!("{:?}", current_offer);
 

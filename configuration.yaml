@@ -1,7 +1,7 @@
 # configuration.yaml
 
 backend:
-  url: "http://localhost:9987"
+  url: "https://diceguild-bk.fly.dev"
   ep: "new_offer"
 
 telemetry:

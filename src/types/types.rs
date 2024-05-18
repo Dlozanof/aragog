@@ -9,6 +9,7 @@ pub struct Offer {
     pub name: String,
     pub normal_price: f64,
     pub offer_price: f64,
+    pub availability: String
 }
 
 #[derive(Debug)]
