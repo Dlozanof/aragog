@@ -1,11 +1,17 @@
 use color_eyre::Report;
 use tracing::info;
-use tracing_subscriber::filter::EnvFilter;
 use aragog::configuration::get_configuration;
 use aragog::parser::{Configuration, DracotiendaParser, ShopParser};
 use aragog::telemetry::init_telemetry;
-//use tokio::runtime::Handle;
+use argh::FromArgs;
 
+#[derive(FromArgs)]
+/// Reach new heights.
+struct AppParams {
+    /// limits the number of offers to be analyzed (aprox)
+    #[argh(option, default = "70")]
+    limit: i32,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Report> {
@@ -22,7 +28,8 @@ async fn main() -> Result<(), Report> {
         post_endpoint: String::from(configuration.backend.ep),
     };
 
-    //let handle = Handle::current();
+    // Argument parsing
+    let up: AppParams = argh::from_env();
 
     let _ = std::thread::spawn(move || {
         info!("Thread {} started", 0);
@@ -35,7 +42,7 @@ async fn main() -> Result<(), Report> {
 
         for parser in parser_vector {
             info!("Processing...");
-            let _ = parser.process(&reqwest::blocking::Client::new(), "https://dracotienda.com/1715-juegos-de-tablero");
+            let _ = parser.process(&reqwest::blocking::Client::new(), "https://dracotienda.com/1715-juegos-de-tablero", up.limit);
         }
     }).join();
 

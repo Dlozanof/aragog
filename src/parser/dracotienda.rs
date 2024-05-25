@@ -195,10 +195,11 @@ fn parse_price(input: &String) -> f64 {
 
 impl ShopParser for DracotiendaParser {
 
-    fn process(&self, client: &reqwest::blocking::Client, url: &str) -> Result<(), Report> {
+    fn process(&self, client: &reqwest::blocking::Client, url: &str, limit: i32) -> Result<(), Report> {
     
         let mut url_to_process = url.to_owned();
-        loop {
+        let limit = limit / 20 + 1;
+        for _ in 0..limit {
             let res = client.get(url_to_process).send()?.error_for_status()?;
             assert!(res.status().is_success());
     
