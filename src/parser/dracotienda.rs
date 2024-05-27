@@ -152,8 +152,14 @@ impl DracotiendaParser {
             .send();
         match response {
             Ok(val) => {
-                if val.status() != 200 {
+                if val.status() == 515 {
+                    warn!("Unable to match {:?}", current_offer);
+                }
+                else if val.status() != 200 {
                     error!("{} Failed to register {:?}", val.status(), current_offer);
+                }
+                else {
+                    info!("Registered!");
                 }
             },
             Err(e) => {
