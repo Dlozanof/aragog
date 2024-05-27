@@ -148,6 +148,7 @@ impl DracotiendaParser {
             .post(post_url)
             .header("Content-Type", "application/json")
             .json(&spanned_message)
+            .timeout(std::time::Duration::from_secs(600))
             .send();
         match response {
             Ok(val) => {

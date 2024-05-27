@@ -19,7 +19,7 @@ FROM debian:bookworm-slim
 RUN apt-get -y update && \
 	apt-get -y upgrade && \
 	apt-get install --no-install-recommends -y \
-	openssl	
+	openssl ca-certificates	
 
 # Run as "app" user
 RUN useradd -ms /bin/bash app
