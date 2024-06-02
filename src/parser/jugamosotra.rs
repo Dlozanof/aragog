@@ -11,7 +11,7 @@ use crate::telemetry::{PropagationContext, SpannedMessage};
 use regex::Regex;
 
 #[derive(Debug)]
-pub struct DracotiendaParser {
+pub struct JugamosotraParser {
     pub cfg: Configuration,
 }
 
@@ -52,30 +52,92 @@ fn process_name(name: &str) -> Option<String> {
     Some(result)
 }
 
-impl DracotiendaParser {
+impl JugamosotraParser {
 
     #[instrument(level = "info", name = "Processing entry", skip_all)]
     fn process_entry(&self, entry: ElementRef) {
 
-        // Get name
-        let name_selector = Selector::parse("h2.productName").unwrap();
-        let name_tokens: Vec<_> = entry.select(&name_selector).collect();
-        if name_tokens.is_empty() {
-            //error!("Name is empty"); // Not sure why but there are several empty offers every
-            //page, probably a shitty workaround
+        // The received element contains two divs, one with availability information and
+        // another one with price information.
+        // Get availability
+        let mut availability = "Disponible";
+        let availability_selector = Selector::parse("li").unwrap();
+        for element in entry.select(&availability_selector) {
+            for attr in element.value().attrs() {
+                //if String::from("product-flag agotado") == String::from(attr.1) {
+                if "product-flag agotado" == attr.1 {
+                    availability = "Agotado";
+                }
+            }
+        }
+
+        // ChatGPT boyyyyy
+        // Define the CSS selectors
+        let name_selector = Selector::parse(".product-title a").unwrap();
+        let offer_price_selector = Selector::parse(".product-price-and-shipping .price").unwrap();
+        let current_price_selector = Selector::parse(".product-price-and-shipping .regular-price").unwrap();
+        let url_selector = Selector::parse(".product-title a").unwrap();
+
+        // Extract and print the product name
+        let name;
+        if let Some(element) = entry.select(&name_selector).next() {
+            name = element.text().collect::<Vec<_>>().concat();
+        } else {
+            error!("Product name not found");
             return;
         }
-        let name: Option<String> = match name_tokens.first() {
-            Some(value) => Some(value.text().collect::<Vec<_>>().get(0).unwrap().to_string()),
-            None => None,
+
+        // Extract and print the current price
+        let normal_price;
+        if let Some(element) = entry.select(&current_price_selector).next() {
+            let tmp = element.text().collect::<Vec<_>>().concat();
+            normal_price = parse_price(&tmp);
+            info!("Current price: {}", normal_price);
+        } else {
+            error!("Current price not found");
+            return;
+        }
+
+        // Extract and print the offer price
+        let offer_price;
+        if let Some(element) = entry.select(&offer_price_selector).next() {
+            let tmp = element.text().collect::<Vec<_>>().concat();
+            offer_price = parse_price(&tmp);
+            info!("Offer price: {}", offer_price);
+        } else {
+            error!("Offer price not found");
+            return;
+        }
+
+        // Extract and print the URL of the offer
+        let link;
+        if let Some(element) = entry.select(&url_selector).next() {
+            if let Some(url) = element.value().attr("href") {
+                link = url.to_string();
+                info!("Offer URL: {}", link);
+            }
+        } else {
+            error!("Offer URL not found");
+            return;
+        }
+        
+        let link = match entry.select(&url_selector).next() {
+            Some(url) => {
+                match url.value().attr("href") {
+                    Some(url) => url,
+                    None => {
+                        error!("No http url in the element");
+                        return;
+                    }
+                }
+            }
+            None => {
+                error!("No url in name");
+                return;
+            }
         };
 
-        if name.is_none() {
-            error!("Unable to get name for {:?}", name_tokens);
-            return;
-        }
-
-        let name = name.unwrap();
+        // Name cleaning
         info!("Processing {}", name);
 
         // Process name, remove weird offers
@@ -87,56 +149,14 @@ impl DracotiendaParser {
         };
         info!("Game processed to {}", name);
 
-        // Get url
-        let link_selector = Selector::parse("a").unwrap();
-        let link: Option<String> = match entry.select(&link_selector).collect::<Vec<_>>().first() {
-            Some(link_value) => {
-                match link_value.value().attr("href") {
-                    Some(url) => Some(String::from(url)),
-                    None => None,
-                }
-            }
-            None => None,
-        };
-        if link == None {
-            error!("Bad link for {}", name);
-            return;
-        }
-
-        // Get current price
-        let current_price_selector = Selector::parse("span.price").unwrap();
-        let current_price = entry.select(&current_price_selector).next().map(|price| price.text().collect::<String>());
-        if current_price == None {
-            error!("Bad current_price for {} [{:?}]", name, current_price);
-            return;
-        }
-
-        // Get offer price. If there is none, then is not a discount but a normal offer.
-        let regular_price_selector = Selector::parse("span.regular-price").unwrap();
-        let regular_price = match entry.select(&regular_price_selector).next().map(|price| price.text().collect::<String>()) {
-            Some(price) => Some(price),
-            None => current_price.to_owned(),
-        };
-
-        // Get availability
-        let availability_selector = Selector::parse("span.product-availability").unwrap();
-        let mut availability = match entry.select(&availability_selector).next().map(|t| t.text().collect::<String>()) {
-            Some(t) => t,
-            None => String::new(),
-        };
-        availability.retain(|c| c.is_alphanumeric() || c.is_whitespace());
-        let availability = availability.trim();
-
-        info!("Availability: {}", availability);
-
         // Create the object offer
         let current_offer = Offer {
             name,
-            url: link.unwrap(),
-            offer_price: parse_price(&current_price.unwrap()),
-            normal_price: parse_price(&regular_price.unwrap()),
+            url: link.to_string(),
+            offer_price,
+            normal_price,
             availability: availability.to_owned(),
-            shop_name: "Dracotienda".to_string(),
+            shop_name: "JugamosOtra".to_string(),
         };
         info!("{:?}", current_offer);
 
@@ -172,7 +192,7 @@ impl DracotiendaParser {
     fn process_page(&self, body: &String) -> Option<String> {
         let fragment = Html::parse_document(&body);
 
-        let entries = Selector::parse("div.laberProduct-container").unwrap();
+        let entries = Selector::parse("div.thumbnail-container").unwrap();
 
         // Process offers in current page
         for entry in fragment.select(&entries) {
@@ -191,7 +211,6 @@ impl DracotiendaParser {
 
 
 fn parse_price(input: &String) -> f64 {
-    //input[0..input.len() - 5].replace(",",".").parse::<f32>().unwrap()
     let val = input.split(" ").next().unwrap();
     let val_clean = val.replace(|c: char| !c.is_ascii(), "").replace(",",".");
     let val_float = val_clean.parse::<f64>().unwrap();
@@ -200,13 +219,13 @@ fn parse_price(input: &String) -> f64 {
 }
 
 
-
-impl ShopParser for DracotiendaParser {
+impl ShopParser for JugamosotraParser {
 
     fn process(&self, client: &reqwest::blocking::Client, url: &str, limit: i32) -> Result<(), Report> {
     
         let mut url_to_process = url.to_owned();
-        let limit = limit / 20 + 1;
+        let limit = limit / 75 + 1;
+
         let mut loop_limiter = 3;
 
         for _ in 0..limit {
@@ -235,7 +254,7 @@ impl ShopParser for DracotiendaParser {
                     continue;
                 }
             };
-
+    
             let body = response.text()?;
             
             match self.process_page(&body) {

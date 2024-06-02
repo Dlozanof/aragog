@@ -1,7 +1,7 @@
 use color_eyre::Report;
 use tracing::info;
 use aragog::configuration::get_configuration;
-use aragog::parser::{Configuration, DracotiendaParser, ShopParser};
+use aragog::parser::{Configuration, DracotiendaParser, ShopParser, JugamosotraParser};
 use aragog::telemetry::init_telemetry;
 use argh::FromArgs;
 
@@ -37,12 +37,13 @@ async fn main() -> Result<(), Report> {
         // Load up parsers
         let mut parser_vector: Vec<Box<dyn ShopParser>> = Vec::new();
         parser_vector.push(
-            Box::new(DracotiendaParser { cfg }),
+            Box::new(JugamosotraParser { cfg }),
         );
 
         for parser in parser_vector {
             info!("Processing...");
-            let _ = parser.process(&reqwest::blocking::Client::new(), "https://dracotienda.com/1715-juegos-de-tablero", up.limit);
+            //let _ = parser.process(&reqwest::blocking::Client::new(), "https://dracotienda.com/1715-juegos-de-tablero", up.limit);
+            let _ = parser.process(&reqwest::blocking::Client::new(), "https://jugamosotra.com/es/24-juegos?order=product.sales.desc", up.limit);
         }
     }).join();
 
