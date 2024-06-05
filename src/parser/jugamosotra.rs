@@ -54,11 +54,12 @@ fn process_name(name: &str) -> Option<String> {
 
 impl JugamosotraParser {
 
-    #[instrument(level = "info", name = "Processing entry", skip_all)]
-    fn process_entry(&self, entry: ElementRef) {
+    #[instrument(level = "info", name = "Processing entry", skip_all, fields(page_url))]
+    fn process_entry(&self, entry: ElementRef, url: &str) {
 
-        // The received element contains two divs, one with availability information and
-        // another one with price information.
+        // This is only for debugging purposes only, but very important
+        tracing::Span::current().record("page_url", &url);
+
         // Get availability
         let mut availability = "Disponible";
         let availability_selector = Selector::parse("li").unwrap();
@@ -87,17 +88,6 @@ impl JugamosotraParser {
             return;
         }
 
-        // Extract and print the current price
-        let normal_price;
-        if let Some(element) = entry.select(&current_price_selector).next() {
-            let tmp = element.text().collect::<Vec<_>>().concat();
-            normal_price = parse_price(&tmp);
-            info!("Current price: {}", normal_price);
-        } else {
-            error!("Current price not found");
-            return;
-        }
-
         // Extract and print the offer price
         let offer_price;
         if let Some(element) = entry.select(&offer_price_selector).next() {
@@ -107,6 +97,17 @@ impl JugamosotraParser {
         } else {
             error!("Offer price not found");
             return;
+        }
+
+        // Extract and print the current price
+        let normal_price;
+        if let Some(element) = entry.select(&current_price_selector).next() {
+            let tmp = element.text().collect::<Vec<_>>().concat();
+            normal_price = parse_price(&tmp);
+            info!("Current price: {}", normal_price);
+        } else {
+            // Game has no offer, so just repeat normal price
+            normal_price = offer_price;
         }
 
         // Extract and print the URL of the offer
@@ -189,14 +190,14 @@ impl JugamosotraParser {
         }
     }
 
-    fn process_page(&self, body: &String) -> Option<String> {
+    fn process_page(&self, body: &String, url: &str) -> Option<String> {
         let fragment = Html::parse_document(&body);
 
         let entries = Selector::parse("div.thumbnail-container").unwrap();
 
         // Process offers in current page
         for entry in fragment.select(&entries) {
-            self.process_entry(entry);
+            self.process_entry(entry, url);
         }
 
         // Search "next" link and return it
@@ -224,7 +225,7 @@ impl ShopParser for JugamosotraParser {
     fn process(&self, client: &reqwest::blocking::Client, url: &str, limit: i32) -> Result<(), Report> {
     
         let mut url_to_process = url.to_owned();
-        let limit = limit / 75 + 1;
+        let limit = limit / 80 + 1;
 
         let mut loop_limiter = 3;
 
@@ -243,6 +244,7 @@ impl ShopParser for JugamosotraParser {
                     if val.status() != 200 {
                         error!("Failed to get data from shop {}", val.status());
                         loop_limiter = loop_limiter - 1;
+                        std::thread::sleep(std::time::Duration::from_secs(5));
                         continue;
                     }
                     loop_limiter = 3; // Reset the limiter
@@ -251,13 +253,14 @@ impl ShopParser for JugamosotraParser {
                 Err(e) => {
                     error!("{}", e.to_string());
                     loop_limiter = loop_limiter - 1;
+                    std::thread::sleep(std::time::Duration::from_secs(5));
                     continue;
                 }
             };
     
             let body = response.text()?;
             
-            match self.process_page(&body) {
+            match self.process_page(&body, &url) {
                 Some(next_url) => url_to_process = next_url,
                 None => break,
             };
