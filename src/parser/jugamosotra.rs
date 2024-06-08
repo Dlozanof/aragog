@@ -54,6 +54,57 @@ fn process_name(name: &str) -> Option<String> {
     Some(result)
 }
 
+
+/* This shop sometimes limits shortens the game and adds `...` to it, so we need
+ * to enter into the offer URL and check it by hand. This function just returns
+ * the name, the rest of data can be parsed from the main page.
+ */
+fn process_single_game(url: &str) -> Option<String> {
+
+    // Create a delay
+    std::thread::sleep(std::time::Duration::from_secs(5));
+
+    // Request data
+    let client = reqwest::blocking::Client::new();
+    
+    // TODO: Put this in a loop, sometimes we get err 500
+    let response = match client
+        .get(url)
+        .timeout(std::time::Duration::from_secs(600))
+        .send() {
+        Ok(val) => {
+            if val.status() != 200 {
+                error!("Failed to get data for single game {}", val.status());
+            }
+            val
+        },
+        Err(e) => {
+            error!("{}", e.to_string());
+            return None;
+        }
+    };
+
+    // Process the document
+    let response_document = match response.text() {
+        Ok(text) => Html::parse_document(&text),
+        Err(_) => return None
+    };
+    
+    // Extract the name
+    let name_selector = Selector::parse("h1.h1[itemprop='name']").unwrap();
+    let name;
+    if let Some(element) = response_document.select(&name_selector).next() {
+        name = element.text().collect::<Vec<_>>().concat();
+    } else {
+        error!("Product name not found");
+        return None;
+    }
+
+    info!("Processed name from {} into {}", url, name);
+
+    Some(String::from(name))
+}
+
 impl JugamosotraParser {
 
     #[instrument(level = "info", name = "Processing entry", skip(self, entry), fields(error_detail="OK"))]
@@ -80,22 +131,6 @@ impl JugamosotraParser {
         let offer_price_selector = Selector::parse(".product-price-and-shipping .price").unwrap();
         let current_price_selector = Selector::parse(".product-price-and-shipping .regular-price").unwrap();
         let url_selector = Selector::parse(".product-title a").unwrap();
-
-        // Extract and print the product name
-        let name;
-        if let Some(element) = entry.select(&name_selector).next() {
-            name = element.text().collect::<Vec<_>>().concat();
-        } else {
-            error!("Product name not found");
-            return;
-        }
-
-        // TODO: Fix this but at least monitor for now
-        if name.contains("...") {
-            tracing::Span::current().record("error_detail", "PartialName");
-            error!("Partial name, unable to process");
-            return;
-        }
 
         // Extract and print the offer price
         let offer_price;
@@ -126,10 +161,34 @@ impl JugamosotraParser {
                 link = url.to_string();
                 info!("Offer URL: {}", link);
             }
+            else {
+                error!("Unable to parse offer URL");
+                return;
+            }
         } else {
             error!("Offer URL not found");
             return;
         }
+
+        // Extract and print the product name
+        let mut name;
+        if let Some(element) = entry.select(&name_selector).next() {
+            name = element.text().collect::<Vec<_>>().concat();
+        } else {
+            error!("Product name not found");
+            return;
+        }
+        if name.contains("...") {
+            name = match process_single_game(link.as_str()) {
+                Some(name) => name,
+                None => {
+                    error!("Unable to parse game name from {}", url);
+                    return;
+                }
+            };
+        }
+        
+
         
         let link = match entry.select(&url_selector).next() {
             Some(url) => {
