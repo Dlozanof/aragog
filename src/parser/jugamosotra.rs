@@ -1,4 +1,6 @@
 use crate::types::Offer;
+use chrono::DateTime;
+use chrono::Utc;
 use color_eyre::Report;
 use config::Value;
 use tracing::{info, warn, error};
@@ -54,11 +56,11 @@ fn process_name(name: &str) -> Option<String> {
 
 impl JugamosotraParser {
 
-    #[instrument(level = "info", name = "Processing entry", skip_all, fields(page_url))]
-    fn process_entry(&self, entry: ElementRef, url: &str) {
+    #[instrument(level = "info", name = "Processing entry", skip(self, entry), fields(error_detail="OK"))]
+    fn process_entry(&self, entry: ElementRef, url: &str, batch_name: &str) {
 
         // This is only for debugging purposes only, but very important
-        tracing::Span::current().record("page_url", &url);
+        //tracing::Span::current().record("page_url", &url);
 
         // Get availability
         let mut availability = "Disponible";
@@ -85,6 +87,13 @@ impl JugamosotraParser {
             name = element.text().collect::<Vec<_>>().concat();
         } else {
             error!("Product name not found");
+            return;
+        }
+
+        // TODO: Fix this but at least monitor for now
+        if name.contains("...") {
+            tracing::Span::current().record("error_detail", "PartialName");
+            error!("Partial name, unable to process");
             return;
         }
 
@@ -179,6 +188,11 @@ impl JugamosotraParser {
                 }
                 else if val.status() != 200 {
                     error!("{} Failed to register {:?}", val.status(), current_offer);
+
+                    // TODO: Fix this issue, but for now monitor it
+                    if val.status() == 408 {
+                        tracing::Span::current().record("error_detail", "HttpTimeout");
+                    }
                 }
                 else {
                     info!("Registered!");
@@ -190,14 +204,14 @@ impl JugamosotraParser {
         }
     }
 
-    fn process_page(&self, body: &String, url: &str) -> Option<String> {
+    fn process_page(&self, body: &String, url: &str, batch_name: &str) -> Option<String> {
         let fragment = Html::parse_document(&body);
 
         let entries = Selector::parse("div.thumbnail-container").unwrap();
 
         // Process offers in current page
         for entry in fragment.select(&entries) {
-            self.process_entry(entry, url);
+            self.process_entry(entry, url, batch_name);
         }
 
         // Search "next" link and return it
@@ -224,6 +238,11 @@ impl ShopParser for JugamosotraParser {
 
     fn process(&self, client: &reqwest::blocking::Client, url: &str, limit: i32) -> Result<(), Report> {
     
+        // Epoch information
+        let now: DateTime<Utc> = Utc::now();
+        let formatted_now = now.format("%Y-%m-%d_%H").to_string();
+
+
         let mut url_to_process = url.to_owned();
         let limit = limit / 80 + 1;
 
@@ -260,7 +279,7 @@ impl ShopParser for JugamosotraParser {
     
             let body = response.text()?;
             
-            match self.process_page(&body, &url) {
+            match self.process_page(&body, &url, &formatted_now) {
                 Some(next_url) => url_to_process = next_url,
                 None => break,
             };
