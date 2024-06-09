@@ -1,7 +1,7 @@
 use color_eyre::Report;
 use tracing::info;
 use aragog::configuration::get_configuration;
-use aragog::parser::{Configuration, DracotiendaParser, ShopParser, JugamosotraParser};
+use aragog::parser::{Configuration, DracotiendaParser, ShopParser, JugamosotraParser, DungeonMarvelsParser};
 use aragog::telemetry::init_telemetry;
 use argh::FromArgs;
 
@@ -56,12 +56,16 @@ async fn main() -> Result<(), Report> {
         "all" => {
             shop!(children, DracotiendaParser, "https://dracotienda.com/1715-juegos-de-tablero", up.limit);
             shop!(children, JugamosotraParser, "https://jugamosotra.com/es/24-juegos?order=product.sales.desc", up.limit);
+            shop!(children, DungeonMarvelsParser, "https://dungeonmarvels.com/10-juegos-de-tablero", up.limit);
         }
         "dracotienda" => {
             shop!(children, DracotiendaParser, "https://dracotienda.com/1715-juegos-de-tablero", up.limit);
         }
         "jugamosotra" => {
             shop!(children, JugamosotraParser, "https://jugamosotra.com/es/24-juegos?order=product.sales.desc", up.limit);
+        }
+        "dungeonmarvels" => {
+            shop!(children, DungeonMarvelsParser, "https://dungeonmarvels.com/10-juegos-de-tablero", up.limit);
         }
         &_ => {
             tracing::error!("Bad option {}", up.shop);

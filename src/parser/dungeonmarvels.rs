@@ -2,8 +2,6 @@ use crate::types::Offer;
 use chrono::DateTime;
 use chrono::Utc;
 use color_eyre::Report;
-use config::Config;
-use config::Value;
 use tracing::{info, warn, error};
 use scraper::{ElementRef, Html, Selector};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -14,7 +12,7 @@ use crate::telemetry::{PropagationContext, SpannedMessage};
 use regex::Regex;
 
 #[derive(Debug)]
-pub struct DracotiendaParser {
+pub struct DungeonMarvelsParser {
     pub cfg: Configuration,
 }
 
@@ -45,7 +43,10 @@ fn process_name(name: &str) -> Option<String> {
 
     // Language in parentheses is just removed
     let result = str::replace(name, "(castellano)", "");
+    let result = str::replace(&result, "(Castellano)", "");
+    let result = str::replace(&result, "(SEMINUEVO)", "");
     let result = str::replace(&result, "(inglés)", "");
+    let result = str::replace(&result, "(Inglés)", "");
 
     // At this point just remove any parentheses left. Thanks CHATGPT
     let re = Regex::new(r"\([^)]*\)").unwrap();
@@ -55,34 +56,82 @@ fn process_name(name: &str) -> Option<String> {
     Some(result)
 }
 
-impl DracotiendaParser {
 
-    pub fn new(cfg: Configuration) -> DracotiendaParser {
-        DracotiendaParser {cfg}
+impl DungeonMarvelsParser {
+    
+    pub fn new(cfg: Configuration) -> DungeonMarvelsParser {
+        DungeonMarvelsParser {cfg}
     }
 
-    #[instrument(level = "info", name = "Processing entry", skip(self, entry), fields(error_detail="OK", shop="Dracotienda"))]
+    #[instrument(level = "info", name = "Processing entry", skip(self, entry), fields(error_detail="OK", shop="DungeonMarvels"))]
     fn process_entry(&self, entry: ElementRef, url: &str, batch_name: &str) {
 
-        // Get name
-        let name_selector = Selector::parse("h2.productName").unwrap();
-        let name_tokens: Vec<_> = entry.select(&name_selector).collect();
-        if name_tokens.is_empty() {
-            //error!("Name is empty"); // Not sure why but there are several empty offers every
-            //page, probably a shitty workaround
+        // Define the selectors
+        let name_selector = Selector::parse("h2.product-title a").unwrap();
+        let normal_price_selector = Selector::parse(".regular-price").unwrap();
+        let discounted_price_selector = Selector::parse(".price").unwrap();
+        let availability_selector = Selector::parse("div.stock-product span.stock-tag").unwrap();
+        let url_selector = Selector::parse("div.thumbnail-container a.thumbnail").unwrap();
+
+
+        // Extract the name of the game
+        let name;
+        if let Some(element) = entry.select(&name_selector).next() {
+            name = element.text().collect::<Vec<_>>().concat();
+            info!("Game Name: {}", name);
+        } else {
+            info!("Game Name not found");
             return;
         }
-        let name: Option<String> = match name_tokens.first() {
-            Some(value) => Some(value.text().collect::<Vec<_>>().get(0).unwrap().to_string()),
-            None => None,
-        };
 
-        if name.is_none() {
-            error!("Unable to get name for {:?}", name_tokens);
+        // TODO: Decide wether to handle names with `...`
+        if name.contains("...") {
+            tracing::Span::current().record("error_detail", "dots_in_name");
+            error!("Dots in name!");
             return;
         }
 
-        let name = name.unwrap();
+        // Extract the discounted price
+        let offer_price;
+        if let Some(element) = entry.select(&discounted_price_selector).next() {
+            let tmp = element.text().collect::<Vec<_>>().concat();
+            offer_price = parse_price(&tmp);
+            info!("Offer price: {}", offer_price);
+        } else {
+            error!("Offer Price not found");
+            return;
+        }
+
+        // Extract the current price
+        let mut normal_price = offer_price;
+        if let Some(element) = entry.select(&normal_price_selector).next() {
+            let tmp = element.text().collect::<Vec<_>>().concat();
+            normal_price = parse_price(&tmp);
+            info!("Current price: {}", normal_price);
+        } else {
+            info!("Current Price not found");
+        }
+
+        // Extract the availability status
+        let mut availability = String::from("Available");
+        if let Some(element) = entry.select(&availability_selector).next() {
+            availability = element.text().collect::<Vec<_>>().concat().trim().to_string();
+            info!("Availability: {}", availability);
+        } else {
+            info!("Availability not found");
+        }
+
+        // Extract the URL
+        let link;
+        if let Some(element) = entry.select(&url_selector).next() {
+            link = element.value().attr("href").unwrap_or("N/A");
+            info!("URL: {}", url);
+        } else {
+            error!("URL not found");
+            return;
+        }
+
+        // Name cleaning
         info!("Processing {}", name);
 
         // Process name, remove weird offers
@@ -94,56 +143,14 @@ impl DracotiendaParser {
         };
         info!("Game processed to {}", name);
 
-        // Get url
-        let link_selector = Selector::parse("a").unwrap();
-        let link: Option<String> = match entry.select(&link_selector).collect::<Vec<_>>().first() {
-            Some(link_value) => {
-                match link_value.value().attr("href") {
-                    Some(url) => Some(String::from(url)),
-                    None => None,
-                }
-            }
-            None => None,
-        };
-        if link == None {
-            error!("Bad link for {}", name);
-            return;
-        }
-
-        // Get current price
-        let current_price_selector = Selector::parse("span.price").unwrap();
-        let current_price = entry.select(&current_price_selector).next().map(|price| price.text().collect::<String>());
-        if current_price == None {
-            error!("Bad current_price for {} [{:?}]", name, current_price);
-            return;
-        }
-
-        // Get offer price. If there is none, then is not a discount but a normal offer.
-        let regular_price_selector = Selector::parse("span.regular-price").unwrap();
-        let regular_price = match entry.select(&regular_price_selector).next().map(|price| price.text().collect::<String>()) {
-            Some(price) => Some(price),
-            None => current_price.to_owned(),
-        };
-
-        // Get availability
-        let availability_selector = Selector::parse("span.product-availability").unwrap();
-        let mut availability = match entry.select(&availability_selector).next().map(|t| t.text().collect::<String>()) {
-            Some(t) => t,
-            None => String::new(),
-        };
-        availability.retain(|c| c.is_alphanumeric() || c.is_whitespace());
-        let availability = availability.trim();
-
-        info!("Availability: {}", availability);
-
         // Create the object offer
         let current_offer = Offer {
             name,
-            url: link.unwrap(),
-            offer_price: parse_price(&current_price.unwrap()),
-            normal_price: parse_price(&regular_price.unwrap()),
+            url: link.to_string(),
+            offer_price,
+            normal_price,
             availability: availability.to_owned(),
-            shop_name: "Dracotienda".to_string(),
+            shop_name: "DungeonMarvels".to_string(),
         };
         info!("{:?}", current_offer);
 
@@ -151,13 +158,13 @@ impl DracotiendaParser {
         let spanned_message = SpannedMessage::new(propagation_context, current_offer.clone());
 
         let post_url = format!("{}/{}", self.cfg.server_address, self.cfg.post_endpoint);
+
         let response = reqwest::blocking::Client::new()
             .post(post_url)
             .header("Content-Type", "application/json")
             .json(&spanned_message)
             .timeout(std::time::Duration::from_secs(600))
             .send();
-
         match response {
             Ok(val) => {
                 if val.status() == 515 {
@@ -179,12 +186,12 @@ impl DracotiendaParser {
                 error!("{}", e.to_string());
             }
         }
-        }
+    }
 
     fn process_page(&self, body: &String, url: &str, batch_name: &str) -> Option<String> {
         let fragment = Html::parse_document(&body);
 
-        let entries = Selector::parse("div.laberProduct-container").unwrap();
+        let entries = Selector::parse("div.product-container").unwrap();
 
         // Process offers in current page
         for entry in fragment.select(&entries) {
@@ -202,8 +209,7 @@ impl DracotiendaParser {
 }
 
 
-fn parse_price(input: &String) -> f64 {
-    //input[0..input.len() - 5].replace(",",".").parse::<f32>().unwrap()
+fn parse_price(input: &str) -> f64 {
     let val = input.split(" ").next().unwrap();
     let val_clean = val.replace(|c: char| !c.is_ascii(), "").replace(",",".");
     let val_float = val_clean.parse::<f64>().unwrap();
@@ -212,16 +218,17 @@ fn parse_price(input: &String) -> f64 {
 }
 
 
-
-impl ShopParser for DracotiendaParser {
+impl ShopParser for DungeonMarvelsParser {
 
     fn process(&self, client: &reqwest::blocking::Client, url: &str, limit: i32) -> Result<(), Report> {
+    
         // Epoch information
         let now: DateTime<Utc> = Utc::now();
         let formatted_now = now.format("%Y-%m-%d_%H").to_string();
 
         let mut url_to_process = url.to_owned();
-        let limit = limit / 20 + 1;
+        let limit = limit / 24 + 1;
+
         let mut loop_limiter = 3;
 
         for _ in 0..limit {
@@ -239,6 +246,7 @@ impl ShopParser for DracotiendaParser {
                     if val.status() != 200 {
                         error!("Failed to get data from shop {}", val.status());
                         loop_limiter = loop_limiter - 1;
+                        std::thread::sleep(std::time::Duration::from_secs(5));
                         continue;
                     }
                     loop_limiter = 3; // Reset the limiter
@@ -247,10 +255,11 @@ impl ShopParser for DracotiendaParser {
                 Err(e) => {
                     error!("{}", e.to_string());
                     loop_limiter = loop_limiter - 1;
+                    std::thread::sleep(std::time::Duration::from_secs(5));
                     continue;
                 }
             };
-
+    
             let body = response.text()?;
             
             match self.process_page(&body, &url, &formatted_now) {
