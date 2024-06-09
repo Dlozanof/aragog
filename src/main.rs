@@ -11,6 +11,10 @@ struct AppParams {
     /// limits the number of offers to be analyzed (aprox)
     #[argh(option, default = "70")]
     limit: i32,
+
+    /// which shop to analyze, can be `all` for all of them to run
+    #[argh(option, default = "String::from(\"all\")")]
+    shop: String
 }
 
 
@@ -47,12 +51,23 @@ async fn main() -> Result<(), Report> {
     // Accumulate children
     let mut children = vec![];
 
-
-    // TODO: Allow for single shop execution
-
-    // Domain Specific Language - ish macros
-    shop!(children, DracotiendaParser, "https://dracotienda.com/1715-juegos-de-tablero", up.limit);
-    shop!(children, JugamosotraParser, "https://jugamosotra.com/es/24-juegos?order=product.sales.desc", up.limit);
+    // Note the Domain Specific Language - ish macros
+    match up.shop.as_str() {
+        "all" => {
+            shop!(children, DracotiendaParser, "https://dracotienda.com/1715-juegos-de-tablero", up.limit);
+            shop!(children, JugamosotraParser, "https://jugamosotra.com/es/24-juegos?order=product.sales.desc", up.limit);
+        }
+        "dracotienda" => {
+            shop!(children, DracotiendaParser, "https://dracotienda.com/1715-juegos-de-tablero", up.limit);
+        }
+        "jugamosotra" => {
+            shop!(children, JugamosotraParser, "https://jugamosotra.com/es/24-juegos?order=product.sales.desc", up.limit);
+        }
+        &_ => {
+            tracing::error!("Bad option {}", up.shop);
+            return Ok(());
+        }
+    }
 
     // Wait fot the analysis to finish
     for child in children {
