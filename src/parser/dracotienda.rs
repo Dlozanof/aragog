@@ -1,5 +1,8 @@
 use crate::types::Offer;
+use chrono::DateTime;
+use chrono::Utc;
 use color_eyre::Report;
+use config::Config;
 use config::Value;
 use tracing::{info, warn, error};
 use scraper::{ElementRef, Html, Selector};
@@ -54,8 +57,12 @@ fn process_name(name: &str) -> Option<String> {
 
 impl DracotiendaParser {
 
-    #[instrument(level = "info", name = "Processing entry", skip_all)]
-    fn process_entry(&self, entry: ElementRef) {
+    pub fn new(cfg: Configuration) -> DracotiendaParser {
+        DracotiendaParser {cfg}
+    }
+
+    #[instrument(level = "info", name = "Processing entry", skip(self, entry), fields(error_detail="OK", shop="Dracotienda"))]
+    fn process_entry(&self, entry: ElementRef, url: &str, batch_name: &str) {
 
         // Get name
         let name_selector = Selector::parse("h2.productName").unwrap();
@@ -169,14 +176,14 @@ impl DracotiendaParser {
         }
     }
 
-    fn process_page(&self, body: &String) -> Option<String> {
+    fn process_page(&self, body: &String, url: &str, batch_name: &str) -> Option<String> {
         let fragment = Html::parse_document(&body);
 
         let entries = Selector::parse("div.laberProduct-container").unwrap();
 
         // Process offers in current page
         for entry in fragment.select(&entries) {
-            self.process_entry(entry);
+            self.process_entry(entry, url, batch_name);
         }
 
         // Search "next" link and return it
@@ -204,7 +211,10 @@ fn parse_price(input: &String) -> f64 {
 impl ShopParser for DracotiendaParser {
 
     fn process(&self, client: &reqwest::blocking::Client, url: &str, limit: i32) -> Result<(), Report> {
-    
+        // Epoch information
+        let now: DateTime<Utc> = Utc::now();
+        let formatted_now = now.format("%Y-%m-%d_%H").to_string();
+
         let mut url_to_process = url.to_owned();
         let limit = limit / 20 + 1;
         let mut loop_limiter = 3;
@@ -238,7 +248,7 @@ impl ShopParser for DracotiendaParser {
 
             let body = response.text()?;
             
-            match self.process_page(&body) {
+            match self.process_page(&body, &url, &formatted_now) {
                 Some(next_url) => url_to_process = next_url,
                 None => break,
             };

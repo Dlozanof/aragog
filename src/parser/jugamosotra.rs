@@ -105,13 +105,15 @@ fn process_single_game(url: &str) -> Option<String> {
     Some(String::from(name))
 }
 
+
 impl JugamosotraParser {
+    
+    pub fn new(cfg: Configuration) -> JugamosotraParser {
+        JugamosotraParser {cfg}
+    }
 
-    #[instrument(level = "info", name = "Processing entry", skip(self, entry), fields(error_detail="OK"))]
+    #[instrument(level = "info", name = "Processing entry", skip(self, entry), fields(error_detail="OK", shop="JugamosOtra"))]
     fn process_entry(&self, entry: ElementRef, url: &str, batch_name: &str) {
-
-        // This is only for debugging purposes only, but very important
-        //tracing::Span::current().record("page_url", &url);
 
         // Get availability
         let mut availability = "Disponible";
@@ -187,8 +189,6 @@ impl JugamosotraParser {
                 }
             };
         }
-        
-
         
         let link = match entry.select(&url_selector).next() {
             Some(url) => {
@@ -300,7 +300,6 @@ impl ShopParser for JugamosotraParser {
         // Epoch information
         let now: DateTime<Utc> = Utc::now();
         let formatted_now = now.format("%Y-%m-%d_%H").to_string();
-
 
         let mut url_to_process = url.to_owned();
         let limit = limit / 80 + 1;

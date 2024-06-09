@@ -13,42 +13,51 @@ struct AppParams {
     limit: i32,
 }
 
+
+// Helper macro, just for the sake of learning
+macro_rules! shop {
+    // `()` indicates that the macro takes no argument.
+    ($thread_vector:ident, $parser:ty, $url:literal, $limit:expr) => {
+
+        $thread_vector.push(std::thread::spawn(move || {
+            // TODO: Super sub-optimal, reading the config file several times
+            // Read configuration
+            let configuration = get_configuration().expect("Failed to read configuration file");
+            let cfg = Configuration {
+                server_address: String::from(configuration.backend.url.clone()),
+                post_endpoint: String::from(configuration.backend.ep.clone()),
+            };
+            let parser = <$parser>::new(cfg);
+            let _ = parser.process(&reqwest::blocking::Client::new(), $url, $limit);
+        }));
+    };
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Report> {
     //setup()?;
 
-    // Read configuration
-    let configuration = get_configuration().expect("Failed to read configuration file");
     // Setup telemetry
+    let configuration = get_configuration().expect("Failed to read configuration file");
     init_telemetry(&configuration.telemetry.endpoint, &configuration.telemetry.service_name);
-
-    // Provide it to different parsers
-    let cfg = Configuration {
-        server_address: String::from(configuration.backend.url),
-        post_endpoint: String::from(configuration.backend.ep),
-    };
 
     // Argument parsing
     let up: AppParams = argh::from_env();
-
-    let _ = std::thread::spawn(move || {
-        info!("Thread {} started", 0);
-
-        // Load up parsers
-        let mut parser_vector: Vec<Box<dyn ShopParser>> = Vec::new();
-        parser_vector.push(
-            Box::new(JugamosotraParser { cfg }),
-        );
-
-        for parser in parser_vector {
-            info!("Processing...");
-            //let _ = parser.process(&reqwest::blocking::Client::new(), "https://dracotienda.com/1715-juegos-de-tablero", up.limit);
-            let _ = parser.process(&reqwest::blocking::Client::new(), "https://jugamosotra.com/es/24-juegos?order=product.sales.desc", up.limit);
-        }
-    }).join();
+    
+    // Accumulate children
+    let mut children = vec![];
 
 
+    // TODO: Allow for single shop execution
 
+    // Domain Specific Language - ish macros
+    shop!(children, DracotiendaParser, "https://dracotienda.com/1715-juegos-de-tablero", up.limit);
+    shop!(children, JugamosotraParser, "https://jugamosotra.com/es/24-juegos?order=product.sales.desc", up.limit);
+
+    // Wait fot the analysis to finish
+    for child in children {
+        let _ = child.join();
+    }
     Ok(())
 }
 
